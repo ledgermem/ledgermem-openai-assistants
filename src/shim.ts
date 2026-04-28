@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { LedgerMem } from "@ledgermem/memory";
 
 /**
@@ -64,6 +65,7 @@ export function createAssistantsShim(
 
   return async (req, res) => {
     const path = stripQuery(req.url);
+    const queryParams = parseQuery(req.url);
     if (!path.startsWith(base + "/threads")) {
       sendError(res, 404, "not_found", `No route for ${req.method} ${path}`);
       return;
@@ -102,7 +104,12 @@ export function createAssistantsShim(
           if (req.method === "POST")
             return createMessage(threadId, req, res, options.ledgermem);
           if (req.method === "GET")
-            return listMessages(threadId, res, options.ledgermem);
+            return listMessages(
+              threadId,
+              queryParams,
+              res,
+              options.ledgermem,
+            );
           return sendError(res, 405, "method_not_allowed", req.method);
         }
         if (segments.length === 3 && req.method === "GET") {
@@ -172,41 +179,91 @@ async function createMessage(
     sendError(res, 400, "invalid_request_error", "content is required");
     return;
   }
+  const createdAt = nowSeconds();
   const memory = (await client.add(text, {
-    metadata: { ...(body.metadata ?? {}), threadId, role },
+    // Persist created_at so subsequent list/get calls can return the
+    // original message timestamp instead of stamping nowSeconds() on every
+    // read (which made created_at advance every time the client polled).
+    metadata: { ...(body.metadata ?? {}), threadId, role, created_at: createdAt },
   })) as { id?: string };
   const id = memory?.id ?? `msg_${randomId()}`;
-  const message = formatMessage(id, threadId, role, text, body.metadata ?? {});
+  const message = formatMessage(
+    id,
+    threadId,
+    role,
+    text,
+    body.metadata ?? {},
+    createdAt,
+  );
   res.status(200).json(message);
 }
 
 async function listMessages(
   threadId: string,
+  query: URLSearchParams,
   res: ShimResponse,
   client: LedgerMem,
 ): Promise<void> {
-  const all = (await client.list({ limit: 100 })) as Array<{
+  // Honour the OpenAI Assistants list query params: limit (1-100, default
+  // 20), order ('asc'|'desc', default 'desc'), and the after/before cursor
+  // pair. Without these the shim returned an unbounded, unordered slice
+  // that did not match what the official SDK paginates over.
+  const requestedLimit = Number(query.get("limit") ?? 20);
+  const limit = Number.isFinite(requestedLimit)
+    ? Math.min(100, Math.max(1, Math.floor(requestedLimit)))
+    : 20;
+  const order = query.get("order") === "asc" ? "asc" : "desc";
+  const after = query.get("after");
+  const before = query.get("before");
+
+  const all = (await client.list({ limit: 1000 })) as Array<{
     id?: string;
     content?: string;
     metadata?: Record<string, unknown>;
   }>;
-  const data: MessageRecord[] = all
+  const filtered = all
     .filter((m) => m?.metadata?.threadId === threadId)
-    .map((m) =>
-      formatMessage(
-        m.id ?? `msg_${randomId()}`,
-        threadId,
-        ((m.metadata?.role as MessageRecord["role"]) ?? "user"),
-        m.content ?? "",
-        m.metadata ?? {},
-      ),
-    );
+    .map((m) => {
+      const meta = m.metadata ?? {};
+      const createdAt =
+        typeof meta.created_at === "number"
+          ? (meta.created_at as number)
+          : nowSeconds();
+      const id = m.id ?? `msg_${randomId()}`;
+      return {
+        id,
+        createdAt,
+        record: formatMessage(
+          id,
+          threadId,
+          (meta.role as MessageRecord["role"]) ?? "user",
+          m.content ?? "",
+          meta,
+          createdAt,
+        ),
+      };
+    });
+  filtered.sort((a, b) =>
+    order === "asc" ? a.createdAt - b.createdAt : b.createdAt - a.createdAt,
+  );
+  let start = 0;
+  if (after) {
+    const idx = filtered.findIndex((m) => m.id === after);
+    if (idx >= 0) start = idx + 1;
+  }
+  let end = filtered.length;
+  if (before) {
+    const idx = filtered.findIndex((m) => m.id === before);
+    if (idx >= 0) end = idx;
+  }
+  const window = filtered.slice(start, end);
+  const page = window.slice(0, limit).map((m) => m.record);
   res.status(200).json({
     object: "list",
-    data,
-    first_id: data[0]?.id ?? null,
-    last_id: data[data.length - 1]?.id ?? null,
-    has_more: false,
+    data: page,
+    first_id: page[0]?.id ?? null,
+    last_id: page[page.length - 1]?.id ?? null,
+    has_more: window.length > limit,
   });
 }
 
@@ -227,15 +284,21 @@ async function getMessage(
     (x) => x.id === msgId && x.metadata?.threadId === threadId,
   );
   if (!m) return sendError(res, 404, "not_found", `Message ${msgId} not found`);
+  const meta = m.metadata ?? {};
+  const createdAt =
+    typeof meta.created_at === "number"
+      ? (meta.created_at as number)
+      : nowSeconds();
   res
     .status(200)
     .json(
       formatMessage(
         msgId,
         threadId,
-        (m.metadata?.role as MessageRecord["role"]) ?? "user",
+        (meta.role as MessageRecord["role"]) ?? "user",
         m.content ?? "",
-        m.metadata ?? {},
+        meta,
+        createdAt,
       ),
     );
 }
@@ -246,11 +309,12 @@ function formatMessage(
   role: MessageRecord["role"],
   text: string,
   metadata: Record<string, unknown>,
+  createdAt: number,
 ): MessageRecord {
   return {
     id,
     object: "thread.message",
-    created_at: nowSeconds(),
+    created_at: createdAt,
     thread_id: threadId,
     role,
     content: [{ type: "text", text: { value: text, annotations: [] } }],
@@ -285,10 +349,19 @@ function stripQuery(url: string): string {
   return i === -1 ? url : url.slice(0, i);
 }
 
+function parseQuery(url: string): URLSearchParams {
+  const i = url.indexOf("?");
+  return new URLSearchParams(i === -1 ? "" : url.slice(i + 1));
+}
+
 function nowSeconds(): number {
   return Math.floor(Date.now() / 1000);
 }
 
 function randomId(): string {
-  return Math.random().toString(36).slice(2, 14);
+  // Math.random() has ~52 bits of entropy and silently repeats under load.
+  // The shim keys threads/messages by these ids in-process, so a collision
+  // routes a new request into someone else's thread. crypto.randomUUID is
+  // 122 bits and collision-resistant.
+  return randomUUID().replace(/-/g, "").slice(0, 16);
 }
