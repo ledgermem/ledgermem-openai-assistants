@@ -221,7 +221,11 @@ async function getMessage(
     content?: string;
     metadata?: Record<string, unknown>;
   }>;
-  const m = all.find((x) => x.id === msgId);
+  // Enforce thread ownership: a message must belong to the requested thread.
+  // Without this, any message id leaks across threads.
+  const m = all.find(
+    (x) => x.id === msgId && x.metadata?.threadId === threadId,
+  );
   if (!m) return sendError(res, 404, "not_found", `Message ${msgId} not found`);
   res
     .status(200)
