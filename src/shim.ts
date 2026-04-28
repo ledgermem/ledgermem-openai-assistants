@@ -249,12 +249,33 @@ async function listMessages(
   let start = 0;
   if (after) {
     const idx = filtered.findIndex((m) => m.id === after);
-    if (idx >= 0) start = idx + 1;
+    if (idx < 0) {
+      // OpenAI's API rejects unknown cursors with a 400 — silently treating
+      // them as "start from the beginning" makes pagination loop forever
+      // when the cursor expires.
+      sendError(
+        res,
+        400,
+        "invalid_request_error",
+        `No message found with id ${after}`,
+      );
+      return;
+    }
+    start = idx + 1;
   }
   let end = filtered.length;
   if (before) {
     const idx = filtered.findIndex((m) => m.id === before);
-    if (idx >= 0) end = idx;
+    if (idx < 0) {
+      sendError(
+        res,
+        400,
+        "invalid_request_error",
+        `No message found with id ${before}`,
+      );
+      return;
+    }
+    end = idx;
   }
   const window = filtered.slice(start, end);
   const page = window.slice(0, limit).map((m) => m.record);
