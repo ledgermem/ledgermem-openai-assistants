@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { LedgerMem } from "@ledgermem/memory";
+import { Mnemo } from "@getmnemo/memory";
 
 /**
  * Minimal Express-style request shape — kept structural so callers can use
@@ -24,7 +24,7 @@ export type AssistantsShimHandler = (
 ) => Promise<void>;
 
 export interface AssistantsShimOptions {
-  ledgermem: LedgerMem;
+  getmnemo: Mnemo;
   /** Override the URL prefix. Defaults to "/v1". */
   basePath?: string;
 }
@@ -47,7 +47,7 @@ interface MessageRecord {
 
 /**
  * Build a request handler that speaks the OpenAI Assistants API but stores
- * threads and messages in LedgerMem.
+ * threads and messages in Mnemo.
  *
  * Supported routes (subset that covers the common migration path):
  *   POST   /v1/threads
@@ -102,18 +102,18 @@ export function createAssistantsShim(
         }
         if (segments.length === 2) {
           if (req.method === "POST")
-            return createMessage(threadId, req, res, options.ledgermem);
+            return createMessage(threadId, req, res, options.getmnemo);
           if (req.method === "GET")
             return listMessages(
               threadId,
               queryParams,
               res,
-              options.ledgermem,
+              options.getmnemo,
             );
           return sendError(res, 405, "method_not_allowed", req.method);
         }
         if (segments.length === 3 && req.method === "GET") {
-          return getMessage(threadId, segments[2]!, res, options.ledgermem);
+          return getMessage(threadId, segments[2]!, res, options.getmnemo);
         }
       }
 
@@ -166,7 +166,7 @@ async function createMessage(
   threadId: string,
   req: ShimRequest,
   res: ShimResponse,
-  client: LedgerMem,
+  client: Mnemo,
 ): Promise<void> {
   const body = (req.body ?? {}) as {
     role?: "user" | "assistant";
@@ -202,7 +202,7 @@ async function listMessages(
   threadId: string,
   query: URLSearchParams,
   res: ShimResponse,
-  client: LedgerMem,
+  client: Mnemo,
 ): Promise<void> {
   // Honour the OpenAI Assistants list query params: limit (1-100, default
   // 20), order ('asc'|'desc', default 'desc'), and the after/before cursor
@@ -292,7 +292,7 @@ async function getMessage(
   threadId: string,
   msgId: string,
   res: ShimResponse,
-  client: LedgerMem,
+  client: Mnemo,
 ): Promise<void> {
   const all = (await client.list({ limit: 100 })) as Array<{
     id?: string;

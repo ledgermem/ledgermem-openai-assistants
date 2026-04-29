@@ -8,4 +8,4 @@ on:
 
 jobs:
   test:
-    uses: ledgermem/.github/.github/workflows/node-test.yml@main
+    uses: getmnemo/.github/.github/workflows/node-test.yml@main

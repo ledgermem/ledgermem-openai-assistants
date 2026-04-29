@@ -17,10 +17,10 @@ function fakeRes() {
 }
 
 describe("createAssistantsShim", () => {
-  let ledgermem: any;
+  let getmnemo: any;
 
   beforeEach(() => {
-    ledgermem = {
+    getmnemo = {
       add: vi.fn().mockResolvedValue({ id: "mem_1" }),
       list: vi.fn().mockResolvedValue([
         {
@@ -36,7 +36,7 @@ describe("createAssistantsShim", () => {
   });
 
   it("creates a thread and returns a thread.* envelope", async () => {
-    const handler = createAssistantsShim({ ledgermem });
+    const handler = createAssistantsShim({ getmnemo });
     const { res, get } = fakeRes();
     await handler({ method: "POST", url: "/v1/threads", body: {} }, res);
     const { status, body } = get() as any;
@@ -46,7 +46,7 @@ describe("createAssistantsShim", () => {
   });
 
   it("rejects messages on unknown thread with 404", async () => {
-    const handler = createAssistantsShim({ ledgermem });
+    const handler = createAssistantsShim({ getmnemo });
     const { res, get } = fakeRes();
     await handler(
       {
@@ -59,8 +59,8 @@ describe("createAssistantsShim", () => {
     expect((get() as any).status).toBe(404);
   });
 
-  it("creates a message and persists to LedgerMem", async () => {
-    const handler = createAssistantsShim({ ledgermem });
+  it("creates a message and persists to Mnemo", async () => {
+    const handler = createAssistantsShim({ getmnemo });
     // First create the thread
     const create = fakeRes();
     await handler({ method: "POST", url: "/v1/threads", body: {} }, create.res);
@@ -75,7 +75,7 @@ describe("createAssistantsShim", () => {
       },
       res,
     );
-    expect(ledgermem.add).toHaveBeenCalledWith("hello world", {
+    expect(getmnemo.add).toHaveBeenCalledWith("hello world", {
       metadata: { threadId, role: "user" },
     });
     const body = (get() as any).body;
@@ -84,11 +84,11 @@ describe("createAssistantsShim", () => {
   });
 
   it("lists messages filtered by threadId", async () => {
-    const handler = createAssistantsShim({ ledgermem });
+    const handler = createAssistantsShim({ getmnemo });
     const create = fakeRes();
     await handler({ method: "POST", url: "/v1/threads", body: {} }, create.res);
     const threadId = (create.get().body as any).id;
-    ledgermem.list.mockResolvedValue([
+    getmnemo.list.mockResolvedValue([
       {
         id: "mem_1",
         content: "msg in thread",
@@ -113,7 +113,7 @@ describe("createAssistantsShim", () => {
   });
 
   it("returns 404 for unknown routes", async () => {
-    const handler = createAssistantsShim({ ledgermem });
+    const handler = createAssistantsShim({ getmnemo });
     const { res, get } = fakeRes();
     await handler({ method: "GET", url: "/v1/assistants" }, res);
     expect((get() as any).status).toBe(404);

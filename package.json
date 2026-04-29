@@ -1,7 +1,7 @@
 {
-  "name": "@ledgermem/openai-assistants",
+  "name": "@getmnemo/openai-assistants",
   "version": "0.1.0",
-  "description": "OpenAI Assistants API compatibility shim backed by LedgerMem.",
+  "description": "OpenAI Assistants API compatibility shim backed by Mnemo.",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -18,21 +18,21 @@
     "lint": "tsc --noEmit"
   },
   "keywords": [
-    "ledgermem",
+    "getmnemo",
     "openai",
     "assistants",
     "shim",
     "compatibility",
     "memory"
   ],
-  "author": "LedgerMem <founders@proofly.dev>",
+  "author": "Mnemo <founders@getmnemo.xyz>",
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/ledgermem/ledgermem-openai-assistants.git"
+    "url": "git+https://github.com/getmnemo/getmnemo-openai-assistants.git"
   },
   "dependencies": {
-    "@ledgermem/memory": "^0.1.0"
+    "@getmnemo/memory": "^0.1.0"
   },
   "peerDependencies": {
     "openai": ">=4.50.0"
