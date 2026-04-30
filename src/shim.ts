@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { Mnemo } from "@getmnemo/memory";
+import { Mnemo } from "@mnemo/memory";
 
 /**
  * Minimal Express-style request shape — kept structural so callers can use
